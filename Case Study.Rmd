@@ -1,0 +1,1093 @@
+---
+title: "Case Study"
+author: "Deshpande, Vedant Sunil"
+date: "6/19/2021"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  results = "hide"
+)
+```
+
+### Include required packages
+```{r}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+library(leaps)
+library(glmnet)
+library(rpart)
+library(rpart.plot)
+library(ROCR)
+library(boot)
+library(faraway)
+library(tidyr)
+```
+
+# 1. Boston Housing Data
+```{r}
+# Load the dataset
+library(MASS)
+boston <- data(Boston); #this data is in MASS package
+colnames(Boston) 
+```
+
+## 1.1 Start with exploratory data analysis. Repeat linear regression as in HW2.
+```{r}
+# Column structure
+str(Boston)
+```
+```{r}
+# Summary statistics
+summary(Boston)
+count(Boston,chas)
+```
+
+```{r fig.height=10, fig.width=10}
+# Histogram and density plots
+par(mfrow = c(1,3))
+h1 <- ggplot(Boston, aes(x=crim)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey',bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h2 <- ggplot(Boston, aes(x=zn)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey',bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h3 <- ggplot(Boston, aes(x=indus)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h4 <- ggplot(Boston, aes(x=chas)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h5 <- ggplot(Boston, aes(x=nox)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h6 <- ggplot(Boston, aes(x=rm)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins =15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h7 <- ggplot(Boston, aes(x=age)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h8 <- ggplot(Boston, aes(x=dis)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h9 <- ggplot(Boston, aes(x=rad)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h10 <- ggplot(Boston, aes(x=tax)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h11 <- ggplot(Boston, aes(x=ptratio)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h12 <- ggplot(Boston, aes(x=black)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h13 <- ggplot(Boston, aes(x=lstat)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h14 <- ggplot(Boston, aes(x=medv)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey', bins = 15) +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h1 + h2 + h3 + h4 + h5 + h6 + h7 + h8 + h9 + h10 + h11 + h12 + h13 + h14
+```
+```{r}
+# Convert categorical variable(s) to factor
+Boston$chas <- as.factor(Boston$chas)
+
+# Split data in to train and test samples (80-20)
+set.seed(13748683)
+sample_index <- sample(nrow(Boston),nrow(Boston)*0.80)
+boston_train <- Boston[sample_index,]
+boston_test <- Boston[-sample_index,]
+```
+
+```{r}
+# Fit Linear Regression model
+model_lm <- lm(medv~.,boston_train)
+summary(model_lm)
+```
+```{r}
+# MSE
+pred_lm <- predict(model_lm)
+MSE <- mean((boston_train$medv - pred_lm)**2)
+MSE
+```
+
+## 1.2 As in HW2, find a best model using linear regression with AIC and BIC and LASSO variable selection. Report model mean squared error (model MSE).
+
+```{r}
+# Defining a null model stepwise selection
+model_lm_n <- lm(medv~1,boston_train)
+```
+
+```{r}
+# Stepwise selection using AIC
+model_lm_aic <- step(model_lm_n,scope=list(lower=model_lm_n, upper=model_lm),direction='both')
+```
+
+```{r}
+# Model MSE
+pred_lm_aic <- predict(model_lm_aic)
+MSE <- mean((boston_train$medv - pred_lm_aic)**2)
+MSE
+summary(model_lm_aic)
+```
+
+```{r}
+# Stepwise selection using BIC
+model_lm_bic <- step(model_lm_n,scope=list(lower=model_lm_n, upper=model_lm),direction='both', k=log(nrow(boston_train)))
+```
+```{r}
+# Model MSE
+pred_bic <- predict(model_lm_bic)
+MSE <- mean((boston_train$medv - pred_bic)**2)
+MSE
+summary(model_lm_bic)
+```
+
+```{r}
+# LASSO variable selection
+lasso_fit <- glmnet(x = as.matrix(Boston[, -c(which(colnames(Boston)=='medv'))]), y = Boston$medv, alpha = 1)
+```
+
+```{r}
+# Use 5-fold cross validation to pick lambda
+cv_lasso_fit <- cv.glmnet(x = data.matrix(Boston[, -c(which(colnames(Boston)=='medv'))]), y = Boston$medv, alpha = 1, nfolds = 5)
+plot(cv_lasso_fit)
+```
+```{r}
+cv_lasso_fit$lambda.min
+```
+
+```{r}
+# LASSO variable selection using optimum lambda
+coef(lasso_fit, s= cv_lasso_fit$lambda.min)
+```
+
+```{r}
+# Fit model using LASSO recommended variables
+lasso_lm <- lm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + black + lstat, boston_train)
+summary(lasso_lm)
+```
+
+```{r}
+# Predicting data using optimum lambda
+pred_cv <- predict(lasso_fit, data.matrix(Boston[, -c(which(colnames(Boston)=='medv'))]), s = cv_lasso_fit$lambda.min)
+MSE <- mean((Boston$medv-pred_cv)**2)
+MSE
+```
+```{r}
+# Model MSE
+pred_lasso <- predict(lasso_lm)
+MSE <- mean((boston_train$medv - pred_lasso)**2)
+MSE
+summary(lasso_lm)
+```
+
+```{r}
+# Final model
+# We are going ahead with the LASSO model, since it is similar to AIC recommended one
+model_final <- lm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + black + lstat,boston_train)
+```
+
+## 1.3 Test the out-of-sample performance. Using final linear model built from (i) on the 80% of original data, test with the remaining 20% testing data. Report out-of-sample model MSPE etc.
+```{r}
+# Predicting data using model built in (i)
+pred_test_f <- predict(model_final,boston_test)
+MSPE <- mean((boston_test$medv-pred_test_f)**2)
+MSPE
+```
+## 1.4 Cross validation. Use 5-fold cross validation. (Please use cv.glm() function in R on the ORIGINAL 100% data.) Does (iv) yield similar answer as (iii)? Please give specific CV score (MSE) and your reason.
+
+```{r}
+# Fit a model wit full data using variables recommended above
+model_cv <- glm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + black + lstat,data=Boston)
+```
+
+```{r}
+# CV score (default = MSE)
+set.seed(13748683)
+cv.glm(data=Boston,glmfit = model_cv,K=5)$delta[2]
+```
+
+## 1.5 Fit a regression tree (CART) on the same data; repeat the above step (iii).
+```{r}
+# CART model
+boston_rpart <- rpart(formula = medv ~ ., data = boston_train)
+boston_rpart
+```
+
+```{r}
+# Plotting the tree
+prp(boston_rpart,digits = 4, extra = 1)
+```
+```{r}
+# MSPE
+pred_tree <- predict(boston_rpart,boston_test)
+MSPE <- mean((boston_test$medv-pred_tree)**2)
+MSPE
+```
+## 1.6 What do you find comparing CART to the linear regression model fits from HW2?
+
+## 1.7 Now repeat previous steps for another random sample (that is, to draw another training data set with 80% of original data, and the rest 20% as testing). Do you get similar results? What’s your conclusion?
+```{r}
+# Creating new train and test splits using same proportions
+set.seed(1000)
+sample_index <- sample(nrow(Boston),nrow(Boston)*0.80)
+boston_train <- Boston[sample_index,]
+boston_test <- Boston[-sample_index,]
+```
+
+### 1.7.1 Fit Linear Regression model
+```{r}
+model_lm2 <- lm(medv~.,boston_train)
+summary(model_lm2)
+```
+```{r}
+# Model MSE
+pred_lm2 <- predict(model_lm2)
+MSE <- mean((boston_train$medv - pred_lm2)**2)
+MSE
+```
+
+### 1.7.2 Model selection
+```{r}
+# Fit null model
+model_lm_n2 <- lm(medv~1,boston_train)
+```
+
+```{r}
+# Stepwise selection using AIC
+model_lm2_aic <- step(model_lm_n2,scope=list(lower=model_lm_n2, upper = model_lm2) , direction='both')
+```
+```{r}
+# Model with AIC parameters
+model_lm_aic2 <- lm(medv ~ lstat + rm + ptratio + dis + nox + chas + black + rad + crim + tax + zn, boston_train)
+summary(model_lm_aic2)
+
+# Model MSE
+pred_lm_aic2 <- predict(model_lm_aic2)
+MSE <- mean((boston_train$medv - pred_lm_aic2)**2)
+MSE
+```
+
+```{r}
+# Stepwise selection using BIC
+model_lm2_bic <- step(model_lm_n2,scope=list(lower=model_lm_n2, upper = model_lm2) , direction='both', k=log(nrow(boston_train)))
+```
+```{r}
+# Model with BIC parameters
+model_lm_bic2 <- lm(medv ~ lstat + rm + ptratio + dis + nox + chas + black,boston_train)
+summary(model_lm_bic2)
+
+# Model MSE
+pred_lm_bic2 <- predict(model_lm_bic2)
+MSE <- mean((boston_train$medv - pred_lm_bic2)**2)
+MSE
+```
+
+```{r}
+# LASSO variable selection
+lasso_fit2 <- glmnet(x = data.matrix(Boston[, -c( which( colnames(Boston)=='medv'))]), y = Boston$medv, alpha = 1)
+
+# Use 5-fold cross validation to pick lambda
+cv_lasso_fit <- cv.glmnet(x = data.matrix(Boston[, -c(which(colnames(Boston)=='medv'))]), y = Boston$medv, alpha = 1, nfolds = 5)
+plot(cv_lasso_fit)
+```
+```{r}
+cv_lasso_fit$lambda.min
+```
+
+```{r}
+# LASSO variable selection using optimum lambda
+coef(lasso_fit2, s= cv_lasso_fit$lambda.min)
+```
+
+```{r}
+# Fit model using LASSO recommended variables
+lasso_lm <- lm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + black + lstat, boston_train)
+summary(lasso_lm)
+```
+```{r}
+# Model MSE
+pred_lasso <- predict(lasso_lm)
+MSE <- mean((boston_train$medv - pred_lasso)**2)
+MSE
+```
+
+
+```{r}
+# Final model
+# We are going ahead with the LASSO model, since it is similar to AIC recommended one
+model_final2 <- lm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + black + lstat,boston_train)
+```
+### 1.7.3 Out-of-sample performance
+```{r}
+# Predicting data using model built in (1.7.1)
+pred_test_f2 <- predict(model_final2,boston_test)
+MSPE <- mean((boston_test$medv-pred_test_f2)**2)
+MSPE
+```
+### 1.7.4 5-fold cross validation
+
+```{r}
+# Fit a model wit full data using variables recommended above
+model_cv2 <- glm(medv ~ crim + zn + chas + nox + rm + dis + rad + tax + ptratio + black + lstat,data=Boston)
+```
+
+```{r}
+# CV score (default = MSE)
+cv.glm(data=Boston,glmfit = model_cv,K=5)$delta[2]
+```
+### 1.7.5 CART model
+
+```{r}
+# CART model
+boston_rpart2 <- rpart(formula = medv ~ ., data = boston_train)
+boston_rpart2
+```
+
+```{r}
+# Plotting the tree
+prp(boston_rpart2,digits = 4, extra = 1)
+```
+
+```{r}
+# MSPE
+pred_tree2 <- predict(boston_rpart2,boston_test)
+MSPE <- mean((boston_test$medv-pred_tree2)**2)
+MSPE
+```
+
+# 2. German Credit Scoring Data
+```{r}
+#Load the dataset:
+german_credit = read.table("http://archive.ics.uci.edu/ml/machine-learning-databases/statlog/german/german.data")
+
+#Assigning column names based on data dictionary
+colnames(german_credit)=c("checking", "duration", "history", "purpose", "credit", "savings", "employment", "installment", "sex", "debtors", "residence", "property", "age", "other_inst", "housing", "existing_credits", "job", "liable", "phone", "foreign","target")
+
+head(german_credit)
+```
+## 2.1 Start with exploratory data analysis. Repeat generalized linear regression as in HW3. Try different link functions (logistic, probit, complementary log-log link) and compare.
+
+```{r}
+# Converting categorical variables to factors
+german_credit$checking <- as.factor(german_credit$checking)
+german_credit$history <- as.factor(german_credit$history)
+german_credit$purpose <- as.factor(german_credit$purpose)
+german_credit$savings <- as.factor(german_credit$savings)
+german_credit$employment <- as.factor(german_credit$employment)
+german_credit$sex <- as.factor(german_credit$sex)
+german_credit$debtors <- as.factor(german_credit$debtors)
+german_credit$property <- as.factor(german_credit$property)
+german_credit$other_inst <- as.factor(german_credit$other_inst)
+german_credit$housing <- as.factor(german_credit$housing)
+german_credit$job <- as.factor(german_credit$job)
+german_credit$phone <- as.factor(german_credit$phone)
+german_credit$foreign <- as.factor(german_credit$foreign)
+german_credit$target <- as.factor(german_credit$target)
+```
+
+
+```{r}
+# Summary statistics
+summary(german_credit)
+```
+
+```{r}
+# Histograms and density plots for continuous variables
+par(mfrow = c(3,3))
+h1 <- ggplot(german_credit, aes(x=duration)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h2 <- ggplot(german_credit, aes(x=credit)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h3 <- ggplot(german_credit, aes(x=installment)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h4 <- ggplot(german_credit, aes(x=residence)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h5 <- ggplot(german_credit, aes(x=age)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h6 <- ggplot(german_credit, aes(x=existing_credits)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+h7 <- ggplot(german_credit, aes(x=liable)) + 
+            geom_histogram(aes(y=..density..), color='black', fill = 'grey') +
+            geom_density(alpha = 0.2, fill = "#FF6666")
+
+h1 + h2 + h3 + h4 + h5 + h6 + h7
+```
+```{r}
+# Box plots (continuous variables)
+par(mfrow = c(3,3))
+
+b1 <- ggplot(german_credit, aes(y=duration)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+b2 <- ggplot(german_credit, aes(y=credit)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+b3 <- ggplot(german_credit, aes(y=installment)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+b4 <- ggplot(german_credit, aes(y=residence)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+b5 <- ggplot(german_credit, aes(y=age)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+b6 <- ggplot(german_credit, aes(y=existing_credits)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+b7 <- ggplot(german_credit, aes(y=liable)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+
+b1 + b2 + b3 + b4 + b5 + b6 + b7
+```
+```{r fig.height=10, fig.width=12}
+# Bar chart for categorical variables
+credit_cat = german_credit
+credit_cat$duration = NULL
+credit_cat$credit = NULL
+credit_cat$installment = NULL
+credit_cat$age = NULL
+credit_cat$residence = NULL
+credit_cat$existing_credits = NULL
+credit_cat$liable = NULL
+ggplot(gather(credit_cat), aes(value)) + 
+    geom_bar(fill = '#FF6666',color = 'black') +
+    facet_wrap(~key,scales = 'free')
+```
+
+
+
+```{r}
+# Split data in to train and test sample
+set.seed(13748683)
+index <- sample(nrow(german_credit),nrow(german_credit)*0.80)
+credit_train = german_credit[index,]
+credit_test = german_credit[-index,]
+```
+
+```{r}
+# Fit generalized linear regression model - logit link
+model_l <- glm(target~., family=binomial(link='logit'), data=credit_train)
+
+# Fit generalized linear regression model - probit link
+model_p <- glm(target~., family=binomial(link='probit'), data=credit_train)
+
+# Fit generalized linear regression model - complementary log-log link
+model_c <- glm(target~., family=binomial(link='cloglog'), data=credit_train)
+
+```
+
+```{r}
+# Comparing coefficients of the above models
+summary(model_l)$coefficients
+summary(model_p)$coefficients
+summary(model_c)$coefficients
+```
+```{r}
+# Misclassification rate
+pred_l <- predict(model_l)
+pred_p <- predict(model_p)
+pred_c <- predict(model_c)
+
+misc_l <- table(credit_train$target, as.numeric((pred_l > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+misc_p <- table(credit_train$target, as.numeric((pred_p > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+misc_c <- table(credit_train$target, as.numeric((pred_c > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+
+(misc_l[2,1] + misc_l[1,2])/sum(misc_l)
+(misc_p[2,1] + misc_p[1,2])/sum(misc_p)
+(misc_c[2,1] + misc_c[1,2])/sum(misc_c)
+```
+
+## 2.2 As in HW3, find a best model using logistic regression with AIC and BIC and LASSO variable selection. Draw ROC curve; report the mean residual deviance, AUC, and the (asymmetric) misclassification rate table of your final model.
+```{r}
+# Fit a null model
+model_lg_n <- glm(target~1, family=binomial(link='logit'), data=credit_train)
+```
+
+```{r}
+# Stepwise selection using AIC
+model_lg_aic <- step(model_lg_n,scope=list(lower=model_lg_n, upper=model_l),direction='both')
+pred_aic <- predict(model_lg_aic, type='response')
+```
+
+```{r}
+# Misclassification rate
+misc <- table(credit_train$target, (pred_aic > 1/6)*1, dnn=c("Truth","Predicted"))
+(misc[1,2] + misc[2,1])/sum(misc)
+```
+
+```{r}
+# Stepwise selection using BIC
+model_lg_bic <- step(model_lg_n,scope=list(lower=model_lg_n, upper=model_l),direction='both', k=log(nrow(credit_train)))
+pred_bic <- predict(model_lg_bic, type='response')
+```
+
+```{r}
+# Misclassification rate
+misc <- table(credit_train$target, (pred_bic > 1/6)*1, dnn=c("Truth","Predicted"))
+(misc[1,2] + misc[2,1])/sum(misc)
+```
+```{r}
+# Preparing data for LASSO
+dummy <- model.matrix(~ ., data = german_credit)
+credit_data_lasso <- data.frame(dummy[,-1])
+
+credit_train_X = data.matrix(dplyr::select(credit_data_lasso, -target2)[index,])
+credit_test_X = data.matrix(dplyr::select(credit_data_lasso, -target2)[-index,])
+credit_train_Y = credit_data_lasso[index, "target2"]
+credit_test_Y = credit_data_lasso[-index, "target2"]
+```
+
+```{r}
+# Implement LASSO
+credit_lasso <- glmnet(x=credit_train_X, y=credit_train_Y, family = "binomial")
+
+# Perform cross validation to determine shrinkage parameter
+credit_lasso_cv<- cv.glmnet(x=credit_train_X, y=credit_train_Y, family = "binomial", type.measure = "class",k=5)
+plot(credit_lasso_cv)
+
+# Coefficients with optimal lambda
+coef(credit_lasso,s=credit_lasso_cv$lambda.min)
+```
+```{r}
+# Prediction
+pred_lasso_train <- predict(credit_lasso, newx=credit_train_X, s=credit_lasso_cv$lambda.1se, type = "response")
+
+# Misclassification rate
+misc <- table(credit_train$target, (pred_lasso_train > 1/6)*1, dnn=c("Truth","Predicted"))
+(misc[1,2] + misc[2,1])/sum(misc)
+```
+
+```{r}
+# Fit final model (given by stepwise AIC)
+model_lg_f <- glm(target ~ checking + history + purpose + installment + savings + foreign + other_inst + housing + credit + age + sex + liable + phone,family='binomial',credit_train)
+
+# ROC Curve on final model (AIC)
+pred_glm <- predict(model_lg_f, credit_train,type="response")
+pred_lg <- prediction(pred_glm, credit_train$target)
+perf <- performance(pred_lg, "tpr", "fpr")
+plot(perf, colorize=TRUE)
+```
+```{r}
+# Mean residual deviance
+model_lg_f$deviance
+```
+
+```{r}
+#Get the AUC
+unlist(slot(performance(pred_lg, "auc"), "y.values"))
+```
+```{r}
+# Asymmetric misclassification table
+table(credit_train$target, (as.numeric(pred_glm > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+```
+
+## 2.3 As in HW3, test the out-of-sample performance. Using final logistic linear model built from (i) on the 80% of original data, test with the remaining 20% testing data. (Try predict() function in R.) Report out-of-sample AUC and misclassification rate.
+```{r}
+# Predict test data using model built in (i)
+pred_lg_f <- predict(model_lg_f,credit_test,type="response")
+
+# AUC
+pred_lg_final <- prediction(pred_lg_f, credit_test$target)
+unlist(slot(performance(pred_lg_final, "auc"), "y.values"))
+```
+```{r}
+# Asymmetric misclassification table
+table(credit_test$target, as.numeric((pred_lg_f > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+```
+
+## 2.4 Cross validation. Use 5-fold cross validation. (Please use cv.glm() function in R on the ORIGINAL 100% data.) Does (iv) yield similar answer as (iii)? Why? Make sure that you specify the right cost functions. Please try AUC and (asymmetric) misclassification rate.
+```{r}
+# Asymmetric cost function - misclassification rate
+costfunc_misc  <- function(obs, pred.p){
+    weight1 <- 5   # define the weight for "true=1 but pred=0" (FN)
+    weight0 <- 1    # define the weight for "true=0 but pred=1" (FP)
+    pcut <- 1/(1+weight1/weight0)
+    c1 <- (obs==1)&(pred.p < pcut)    # count for "true=1 but pred=0"   (FN)
+    c0 <- (obs==0)&(pred.p >= pcut)   # count for "true=0 but pred=1"   (FP)
+    cost <- mean(weight1*c1 + weight0*c0)  # misclassification with weight
+    return(cost) # you have to return to a value when you write R functions
+}
+```
+
+```{r}
+# Asymmetric cost function - AUC
+costfunc_auc <- function(obs,pred) {
+  pred_lg <- prediction(pred, obs)
+  auc <- unlist(slot(performance(pred_lg, "auc"), "y.values"))
+  return(auc)
+}
+```
+
+```{r}
+# 5-fold cross validation - AUC
+set.seed(13748683)
+credit_glm1<- glm(target~. , family=binomial, data=german_credit)
+cv_result  <- cv.glm(data=german_credit, glmfit=credit_glm1, cost=costfunc_auc, K=5) 
+cv_result$delta[2]
+```
+```{r}
+# 5-fold cross validation - misclassification rate
+set.seed(13748683)
+credit_glm1<- glm(target~. , family=binomial, data=german_credit)
+cv_result  <- cv.glm(data=german_credit, glmfit=credit_glm1, cost=costfunc_misc, K=5) 
+cv_result$delta[2]
+```
+## 2.5 Fit a classification tree (CART) on the same data (the function rpart() is automatically adjusted for the cut-off probability so that you do not need to specify again); repeat the above step (iii). Please use plotcp() function and corresponding plot to prune the tree.
+
+```{r}
+# Fit CART model
+credit_rparta <- rpart(formula = target ~ ., data = credit_train, method = "class", parms = list(loss=matrix(c(0,5,1,0), nrow = 2)))
+prp(credit_rparta,digits = 4, extra = 1)
+credit_rparta
+
+# Predict for test data
+pred0 <- predict(credit_rparta, credit_test, type='class')
+table(credit_test$target, pred0, dnn = c("True", "Pred"))
+```
+```{r}
+# AUC
+pred_prob <- predict(credit_rparta, credit_test, type = "prob")
+pred = prediction(pred_prob[,2], credit_test$target)
+slot(performance(pred, "auc"), "y.values")[[1]]
+```
+
+
+```{r}
+# Plotting the tree
+plotcp(credit_rparta)
+```
+```{r}
+# Prune the tree with cp=0.095
+credit_rpart1 <- prune(credit_rparta,cp=0.095)
+prp(credit_rpart1,digits = 4, extra = 1)
+```
+```{r}
+# Prediction on pruned model
+pred1 <- predict(credit_rpart1, credit_test, type='class')
+table(credit_test$target, pred1, dnn = c("True", "Pred"))
+```
+
+## 2.6 What do you find comparing CART to the logistic regression model fits from HW3?
+Please mention findings
+
+## 2.7 Now repeat previous steps for another random sample. Do you get similar results? What’s your conclusion? Please provide detailed comparison tables.
+
+### 2.7.1 Generalized Linear Regression Model
+```{r}
+# Create new train test split (90-10)
+set.seed(13748683)
+index <- sample(nrow(german_credit),nrow(german_credit)*0.90)
+credit_train = german_credit[index,]
+credit_test = german_credit[-index,]
+```
+
+```{r}
+# Fit generalized linear regression model - logit link
+model_l2 <- glm(target~., family=binomial(link='logit'), data=credit_train)
+
+# Fit generalized linear regression model - probit link
+model_p2 <- glm(target~., family=binomial(link='probit'), data=credit_train)
+
+# Fit generalized linear regression model - complementary log-log link
+model_c2 <- glm(target~., family=binomial(link='cloglog'), data=credit_train)
+```
+
+```{r}
+# Compare coefficients
+summary(model_l2)$coefficients
+summary(model_p2)$coefficients
+summary(model_c2)$coefficients
+```
+```{r}
+# Misclassification rate
+pred_l2 <- predict(model_l2)
+pred_p2 <- predict(model_p2)
+pred_c2 <- predict(model_c2)
+
+misc_l2 <- table(credit_train$target, as.numeric((pred_l2 > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+misc_p2 <- table(credit_train$target, as.numeric((pred_p2 > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+misc_c2 <- table(credit_train$target, as.numeric((pred_c2 > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+
+(misc_l2[2,1] + misc_l2[1,2])/sum(misc_l)
+(misc_p2[2,1] + misc_p2[1,2])/sum(misc_p)
+(misc_c2[2,1] + misc_c2[1,2])/sum(misc_c)
+```
+### 2.7.2
+```{r}
+model_lg_n2 <- glm(target~1,family='binomial',credit_train)
+
+# Stepwise selection using AIC
+model_lg_aic2 <- step(model_lg_n2,scope=list(lower=model_lg_n2,upper=model_l2), direction= 'both')
+```
+```{r}
+# Misclassification rate
+pred_aic2 <- predict(model_lg_aic2)
+table(credit_train$target, as.numeric((pred_aic2 > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+```
+
+
+```{r}
+# Stepwise selection using BIC
+model_lg_bic2 <- step(model_lg_n2,scope=list(lower=model_lg_n2, upper= model_l2), direction ='both', k=log(nrow(credit_train)))
+```
+```{r}
+# Misclassification rate
+pred_bic2 <- predict(model_lg_bic2)
+table(credit_train$target, as.numeric((pred_bic2 > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+```
+
+```{r}
+# Preparing data for LASSO
+dummy <- model.matrix(~ ., data = german_credit)
+credit_data_lasso <- data.frame(dummy[,-1])
+
+credit_train_X = data.matrix(dplyr::select(credit_data_lasso, -target2)[index,])
+credit_test_X = data.matrix(dplyr::select(credit_data_lasso, -target2)[-index,])
+credit_train_Y = credit_data_lasso[index, "target2"]
+credit_test_Y = credit_data_lasso[-index, "target2"]
+```
+
+```{r}
+# Implement LASSO
+credit_lasso <- glmnet(x=credit_train_X, y=credit_train_Y, family = "binomial")
+
+# Perform cross validation to determine shrinkage parameter
+credit_lasso_cv<- cv.glmnet(x=credit_train_X, y=credit_train_Y, family = "binomial", type.measure = "class")
+
+
+# Coefficients with optimal lambda
+coef(credit_lasso,s=credit_lasso_cv$lambda.min)
+```
+```{r}
+# Prediction
+pred_lasso_train <- predict(credit_lasso, newx=credit_train_X, s=credit_lasso_cv$lambda.1se, type = "response")
+
+# Misclassification rate
+misc <- table(credit_train$target, (pred_lasso_train > 1/6)*1, dnn=c("Truth","Predicted"))
+(misc[1,2] + misc[2,1])/sum(misc)
+```
+
+```{r}
+# Fit final model
+model_lg_f2 <- glm(target ~ checking + duration + history + purpose + savings + installment +                       debtors + housing + other_inst + foreign + credit + age +                                           sex,family='binomial',credit_train)
+
+# ROC Curve on final model (AIC)
+pred_glm <- predict(model_lg_f2, credit_train,type="response")
+pred_lg <- prediction(pred_glm, credit_train$target)
+perf <- performance(pred_lg, "tpr", "fpr")
+plot(perf, colorize=TRUE)
+```
+```{r}
+# Mean residual deviance
+model_lg_f2$deviance
+```
+
+```{r}
+#Get the AUC
+unlist(slot(performance(pred_lg, "auc"), "y.values"))
+```
+
+```{r}
+# Asymmetric misclassification table
+table(credit_train$target, as.numeric((pred_glm > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+```
+### 2.7.3 Out-of-sample misclassification rate
+```{r}
+pred_test_f <- predict(model_lg_f2,credit_test)
+table(credit_test$target, as.numeric((pred_test_f > 1/6)*1)+1, dnn=c("Truth","Predicted"))
+```
+```{r}
+# AUC
+pred_lg <- prediction(pred_test_f, credit_test$target)
+unlist(slot(performance(pred_lg, "auc"), "y.values"))
+```
+
+### 2.7.4 Cross Validation
+```{r}
+# 5-fold cross validation - AUC
+credit_glm1<- glm(target~. , family=binomial, data=german_credit)
+cv_result  <- cv.glm(data=german_credit, glmfit=credit_glm1, cost=costfunc_auc, K=5) 
+cv_result$delta[2]
+```
+```{r}
+# 5-fold cross validation - misclassification rate
+credit_glm1<- glm(target~. , family=binomial, data=german_credit)
+cv_result  <- cv.glm(data=german_credit, glmfit=credit_glm1, cost=costfunc_misc, K=5) 
+cv_result$delta[2]
+```
+### 2.7.5 CART model
+```{r}
+# Fit CART model
+credit_rparta <- rpart(formula = target ~ ., data = credit_train, method = "class", parms = list(loss=matrix(c(0,5,1,0), nrow = 2)))
+prp(credit_rparta,digits = 4, extra = 1)
+credit_rparta
+
+# Predict for test data
+pred0 <- predict(credit_rparta, credit_test, type='class')
+table(credit_test$target, pred0, dnn = c("True", "Pred"))
+```
+```{r}
+# AUC
+pred_prob <- predict(credit_rparta, credit_test, type = "prob")
+pred = prediction(pred_prob[,2], credit_test$target)
+slot(performance(pred, "auc"), "y.values")[[1]]
+```
+
+```{r}
+# Plotting the tree
+plotcp(credit_rparta)
+```
+
+```{r}
+# Prune the tree with cp=0.011
+credit_rpart1 <- prune(credit_rparta,cp=0.011)
+```
+```{r}
+# Misclassification rate
+pred_rpart1 <- predict(credit_rpart1,credit_test,type='class')
+table(credit_test$target, pred_rpart1, dnn = c("True", "Pred"))
+```
+
+# Q.3 Monte Carlo Simulation Study (Logistic Regression)
+## 3.1 Generate data with x1i~Unif(0,1), x2i =1 for i odd and x2i =0 for i even, and sample size n=500 for the following steps. 
+```{r}
+# Generate data as per given instructions
+set.seed(13748683)
+n=500
+m=100
+x1 <- runif(n, min = 0, max = 1)
+x2 <- c(1:n)
+for (i in 1:n) {
+	x2[i]=ifelse(x2[i]%%2==1,1,0)
+}
+```
+
+## 3.2 Simulate the response vector y|x~Binary(p), where p= E(y|x), and logit(pi)= -1.1+5 x1i-0.4* x2i for a total of m=100 times. For each simulation, you have a new response vector y. Fit a logistic regression model for each simulation, save the necessary outputs.
+```{r}
+# Simulate data and record required observations
+coef = data.frame(ncol=3)
+auc = c()
+dev = c()
+
+for (i in 1:m) {
+  p.logit <- ilogit(-1.1 + 5*x1 - 0.4*x2)
+  y <- c()
+  for (j in 1:n) {
+	  y[j] = rbinom(1,1,p.logit[j])
+  }
+  
+  data_l <- data.frame('x1'=x1,'x2'=x2,'y'=y)
+  data_l$y <- as.factor(data_l$y)
+  data_l$x2 <- as.factor(data_l$x2)
+  
+  model <- glm(y~.,family='binomial',data_l)
+  for (j in 1:3) {
+    coef[i,j] = coef(model)[[j]]
+  }
+  
+  dev[i] = deviance(model)
+  
+  pred <- predict(model, type='response')
+  pred_lg <- prediction(pred, data_l$y)
+  auc[i] = unlist(slot(performance(pred_lg, "auc"), "y.values"))
+  
+}
+colnames(coef) <- c('Intercept','x1','x21')
+```
+
+## 3.3 Comparing estimates and parameters
+```{r}
+# Mean parameter estimate
+int_hat <- mean(coef$Intercept)
+beta1_hat <- mean(coef$x1)
+beta2_hat <- mean(coef$x21)
+
+int_hat
+beta1_hat
+beta2_hat
+```
+
+```{r}
+# Estimation bias
+int_bias <- int_hat - (-1.1)
+beta1_bias <- beta1_hat - 5
+beta2_bias <- beta2_hat - (-0.4)
+
+int_bias
+beta1_bias
+beta2_bias
+```
+
+```{r}
+# Variance
+int_var <- mean(coef$Intercept - int_hat)
+beta1_var <- mean(coef$x1 - beta1_hat)
+beta2_var <- mean(coef$x21 - beta2_hat)
+
+int_var
+beta1_var
+beta2_var
+```
+
+```{r}
+# MSE
+int_mse <- int_bias**2 + int_var
+beta1_mse <- beta1_bias**2 + beta1_var
+beta2_mse <- beta2_bias**2 + beta2_var
+
+int_mse
+beta1_mse
+beta2_mse
+```
+
+## 2.4 Report the average estimated model mean residual deviance and average AUC over m simulations. Draw a box plot of model mean residual deviance; and a separate box plot of AUC.
+```{r}
+# Average residual deviance
+mean(dev)
+```
+```{r}
+# Average AUC
+mean(auc)
+```
+```{r}
+# Box plot - residual deviance
+dev_df <- data.frame('Deviance'=dev)
+ggplot(dev_df, aes(y=Deviance)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+```
+```{r}
+# Box plot - auc
+auc_df <- data.frame('AUC'=auc)
+ggplot(auc_df, aes(y=AUC)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+```
+## 2.5 Please repeat i)-iv) with increased sample size n=5,000. What is your general conclusion when sample size increases?
+
+### 2.5.1 Generate data
+```{r}
+set.seed(13748683)
+n=5000
+m=100
+x1 <- runif(n, min = 0, max = 1)
+x2 <- c(1:n)
+for (i in 1:n) {
+	x2[i]=ifelse(x2[i]%%2==1,1,0)
+}
+```
+
+### 2.5.2 Simulate data
+```{r}
+set.seed(13748683)
+coef = data.frame(ncol=3)
+auc = c()
+dev = c()
+
+for (i in 1:m) {
+  p.logit <- ilogit(-1.1 + 5*x1 - 0.4*x2)
+  y <- c()
+  for (j in 1:n) {
+	  y[j] = rbinom(1,1,p.logit[j])
+  }
+  
+  data_l <- data.frame('x1'=x1,'x2'=x2,'y'=y)
+  data_l$y <- as.factor(data_l$y)
+  data_l$x2 <- as.factor(data_l$x2)
+  
+  model <- glm(y~.,family='binomial',data_l)
+  for (j in 1:3) {
+    coef[i,j] = coef(model)[[j]]
+  }
+  
+  dev[i] = deviance(model)
+  
+  pred <- predict(model, type='response')
+  pred_lg <- prediction(pred, data_l$y)
+  auc[i] = unlist(slot(performance(pred_lg, "auc"), "y.values"))
+  
+}
+colnames(coef) <- c('Intercept','x1','x21')
+```
+
+### 3.5.3 
+```{r}
+# Mean parameter estimate
+int_hat <- mean(coef$Intercept)
+beta1_hat <- mean(coef$x1)
+beta2_hat <- mean(coef$x21)
+
+int_hat
+beta1_hat
+beta2_hat
+```
+
+```{r}
+# Estimation bias
+int_bias <- int_hat - (-1.1)
+beta1_bias <- beta1_hat - 5
+beta2_bias <- beta2_hat - (-0.4)
+
+int_bias
+beta1_bias
+beta2_bias
+```
+
+```{r}
+# Variance
+int_var <- mean(coef$Intercept - int_hat)
+beta1_var <- mean(coef$x1 - beta1_hat)
+beta2_var <- mean(coef$x21 - beta2_hat)
+
+int_var
+beta1_var
+beta2_var
+```
+
+```{r}
+# MSE
+int_mse <- int_bias**2 + int_var
+beta1_mse <- beta1_bias**2 + beta1_var
+beta2_mse <- beta2_bias**2 + beta2_var
+
+int_mse
+beta1_mse
+beta2_mse
+```
+
+### 3.5.4 Average residual deviance and AUC
+```{r}
+# Average residual deviance
+mean(dev)
+```
+
+```{r}
+# Average AUC
+mean(auc)
+```
+```{r}
+# Box plot - residual deviance
+dev_df <- data.frame('Deviance'=dev)
+ggplot(dev_df, aes(y=Deviance)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+```
+```{r}
+# Box plot - AUC
+auc_df <- data.frame('AUC'=auc)
+ggplot(auc_df, aes(y=AUC)) + 
+  geom_boxplot(fill='#FF6666',outlier.colour = 'black',width=1,alpha=0.5) + xlim(-0.8,0.8)
+```
+
+
+
+
+
